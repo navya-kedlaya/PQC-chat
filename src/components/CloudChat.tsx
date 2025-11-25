@@ -19,7 +19,8 @@ interface Profile {
 
 const CloudChat: React.FC = () => {
   const { user, loading } = useAuth();
-  const [displayName, setDisplayName] = useState("");
+  const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
+  const [formValue, setFormValue] = useState("");
   const [profileReady, setProfileReady] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedRecipient, setSelectedRecipient] = useState<string | null>(
@@ -76,11 +77,16 @@ const CloudChat: React.FC = () => {
       .then((snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as Profile;
-          setDisplayName(data.displayName || "");
+          const name = data.displayName?.trim() || null;
+          setSavedDisplayName(name);
+          setFormValue(name || "");
           console.log("[CloudChat] Loaded existing profile", {
             userId: user.uid,
-            displayName: data.displayName,
+            displayName: name,
           });
+        } else {
+          setSavedDisplayName(null);
+          setFormValue("");
         }
         setProfileReady(true);
       })
@@ -128,11 +134,11 @@ const CloudChat: React.FC = () => {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !displayName.trim()) return;
+    if (!user || !formValue.trim()) return;
 
     setSavingProfile(true);
     try {
-      const normalizedName = displayName.trim();
+      const normalizedName = formValue.trim();
       try {
         await updateProfile(user, { displayName: normalizedName });
       } catch (err) {
@@ -148,6 +154,7 @@ const CloudChat: React.FC = () => {
         { merge: true }
       );
       console.log("[CloudChat] Saved profile", { userId: user.uid });
+      setSavedDisplayName(normalizedName);
     } catch (err) {
       console.error("Failed to save profile:", err);
       alert("We could not save your profile. Please try again.");
@@ -205,7 +212,7 @@ const CloudChat: React.FC = () => {
     );
   }
 
-  if (!displayName.trim()) {
+  if (!savedDisplayName) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <form
@@ -221,8 +228,8 @@ const CloudChat: React.FC = () => {
           </p>
           <input
             type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            value={formValue}
+            onChange={(e) => setFormValue(e.target.value)}
             placeholder="e.g. QuantumFox"
             className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
