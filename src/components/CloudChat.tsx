@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { signInAnonymously, updateProfile } from "firebase/auth";
 import {
   collection,
@@ -7,7 +7,7 @@ import {
   onSnapshot,
   setDoc,
 } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { auth, db, firebaseDiagnostics } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { SecureChat } from "./SecureChat";
 
@@ -27,14 +27,45 @@ const CloudChat: React.FC = () => {
   );
   const [savingProfile, setSavingProfile] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [initError, setInitError] = useState<string | null>(null);
+  const signInAttemptRef = useRef(false);
+
+  useEffect(() => {
+    console.log("[CloudChat] Render", {
+      hasUser: Boolean(user),
+      loading,
+      profileReady,
+      profilesCount: profiles.length,
+      selectedRecipient,
+    });
+  });
 
   // Bootstrap anonymous auth so each browser session gets a stable user id
   useEffect(() => {
-    if (loading || user) return;
-    signInAnonymously(auth).catch((err) => {
-      console.error("Failed to sign in anonymously:", err);
+    if (user) {
+      signInAttemptRef.current = false;
+      return;
+    }
+    if (signInAttemptRef.current) {
+      console.log("[CloudChat] Waiting for previous sign-in attempt to finish");
+      return;
+    }
+    signInAttemptRef.current = true;
+    console.log("[CloudChat] Attempting anonymous sign-in", {
+      loading,
     });
-  }, [loading, user]);
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("[CloudChat] signInAnonymously resolved");
+      })
+      .catch((err) => {
+        console.error("Failed to sign in anonymously:", err);
+        setInitError(
+          `Anonymous sign-in failed: ${err?.code || err?.message || err}`
+        );
+        signInAttemptRef.current = false;
+      });
+  }, [user, loading]);
 
   // Load or create the current user's profile document
   useEffect(() => {
@@ -46,11 +77,16 @@ const CloudChat: React.FC = () => {
         if (snapshot.exists()) {
           const data = snapshot.data() as Profile;
           setDisplayName(data.displayName || "");
+          console.log("[CloudChat] Loaded existing profile", {
+            userId: user.uid,
+            displayName: data.displayName,
+          });
         }
         setProfileReady(true);
       })
       .catch((err) => {
         console.error("Failed to load profile:", err);
+        setInitError(err.message || "Failed to load profile");
         setProfileReady(true);
       });
   }, [user]);
@@ -59,16 +95,28 @@ const CloudChat: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const unsubscribe = onSnapshot(collection(db, "profiles"), (snapshot) => {
-      const loaded: Profile[] = [];
-      snapshot.forEach((docSnap) => {
-        loaded.push({
-          id: docSnap.id,
-          ...(docSnap.data() as Profile),
+    const unsubscribe = onSnapshot(
+      collection(db, "profiles"),
+      (snapshot) => {
+        const loaded: Profile[] = [];
+        snapshot.forEach((docSnap) => {
+          loaded.push({
+            id: docSnap.id,
+            ...(docSnap.data() as Profile),
+          });
         });
-      });
-      setProfiles(loaded);
-    });
+        console.log("[CloudChat] Profiles snapshot", {
+          count: loaded.length,
+        });
+        setProfiles(loaded);
+      },
+      (error) => {
+        console.error("[CloudChat] profiles snapshot error", error);
+        setInitError(
+          error.message || "Failed to subscribe to profiles collection"
+        );
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
@@ -99,6 +147,7 @@ const CloudChat: React.FC = () => {
         },
         { merge: true }
       );
+      console.log("[CloudChat] Saved profile", { userId: user.uid });
     } catch (err) {
       console.error("Failed to save profile:", err);
       alert("We could not save your profile. Please try again.");
@@ -117,6 +166,36 @@ const CloudChat: React.FC = () => {
       console.error("Failed to copy id:", err);
     }
   };
+
+  if (firebaseDiagnostics.missingKeys.length > 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-red-50 text-red-700 p-4 text-center">
+        <div>
+          <p className="font-semibold text-lg mb-2">
+            Firebase configuration is incomplete.
+          </p>
+          <p>
+            Missing keys: {firebaseDiagnostics.missingKeys.join(", ")}. Check
+            your environment variables on Vercel (they must start with
+            REACT_APP_).
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (initError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-red-50 text-red-700 p-6 text-center">
+        <div>
+          <p className="font-semibold text-lg mb-2">
+            Unable to initialize secure cloud session.
+          </p>
+          <p>{initError}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !profileReady || !user) {
     return (

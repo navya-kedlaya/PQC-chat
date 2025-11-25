@@ -7,10 +7,20 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setUser(user);
-      setLoading(false);
-    });
+    const unsubscribe = auth.onAuthStateChanged(
+      (user) => {
+        console.log("[useAuth] Auth state changed", {
+          hasUser: Boolean(user),
+          uid: user?.uid,
+        });
+        setUser(user);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("[useAuth] Failed to observe auth state", error);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);

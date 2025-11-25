@@ -31,6 +31,11 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
     if (!user || !recipientId) return;
 
     const conversationId = getConversationId(user.uid, recipientId);
+    console.log("[SecureChat] Subscribing to conversation", {
+      conversationId,
+      recipientId,
+      userId: user.uid,
+    });
 
     const q = query(
       collection(db, "messages"),
@@ -38,28 +43,41 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
       orderBy("timestamp", "asc")
     );
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const newMessages: Message[] = [];
+    const unsubscribe = onSnapshot(
+      q,
+      async (snapshot) => {
+        console.log("[SecureChat] Messages snapshot", {
+          conversationId,
+          size: snapshot.size,
+        });
+        const newMessages: Message[] = [];
 
-      for (const doc of snapshot.docs) {
-        try {
-          const data = doc.data();
-          const decrypted = await decryptReceivedMessage(data, user.uid);
-          newMessages.push({
-            id: doc.id,
-            text: decrypted.message,
-            senderId: decrypted.senderId,
-            timestamp: data.timestamp,
-          });
-        } catch (err) {
-          console.error("Error decrypting message:", err);
-          // Skip messages that can't be decrypted
-          continue;
+        for (const doc of snapshot.docs) {
+          try {
+            const data = doc.data();
+            if (!data.payloads) {
+              console.warn("[SecureChat] Missing payloads on message", doc.id);
+            }
+            const decrypted = await decryptReceivedMessage(data, user.uid);
+            newMessages.push({
+              id: doc.id,
+              text: decrypted.message,
+              senderId: decrypted.senderId,
+              timestamp: data.timestamp,
+            });
+          } catch (err) {
+            console.error("Error decrypting message:", err);
+            // Skip messages that can't be decrypted
+            continue;
+          }
         }
-      }
 
-      setMessages(newMessages);
-    });
+        setMessages(newMessages);
+      },
+      (error) => {
+        console.error("[SecureChat] Message subscription error", error);
+      }
+    );
 
     return () => unsubscribe();
   }, [user, recipientId, decryptReceivedMessage]);
@@ -71,6 +89,10 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
     setSending(true);
     try {
       await sendMessage(newMessage, recipientId);
+      console.log("[SecureChat] Sent message", {
+        recipientId,
+        textLength: newMessage.length,
+      });
       setNewMessage("");
     } catch (err) {
       console.error("Error sending message:", err);
