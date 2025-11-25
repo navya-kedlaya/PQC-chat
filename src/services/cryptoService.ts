@@ -1,5 +1,11 @@
 import { db } from "../firebase";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+} from "firebase/firestore";
 import { generateKyberKeyPair, encapsulate, decapsulate } from "../utils/kyber";
 import { generateDilithiumKeyPair, sign, verify } from "../utils/dilithium";
 import { encrypt, decrypt, deriveKey } from "../utils/aes";
@@ -21,15 +27,72 @@ export interface UserKeys {
 /**
  * Interface for encrypted message data
  */
-interface EncryptedMessage {
+interface EncryptedPayload {
   ciphertext: Uint8Array;
   iv: Uint8Array;
   tag: Uint8Array;
-  signature: Uint8Array;
   encapsulatedKey: Uint8Array;
+}
+
+interface StoredEncryptedPayload {
+  ciphertext: number[];
+  iv: number[];
+  tag: number[];
+  encapsulatedKey: number[];
+}
+
+interface EncryptedMessageDocument {
+  payloads: Record<string, EncryptedPayload>;
+  signature: Uint8Array;
   senderId: string;
   recipientId: string;
   timestamp: number;
+  conversationId: string;
+  visibleTo: string[];
+}
+
+interface StoredEncryptedMessage {
+  payloads: Record<string, StoredEncryptedPayload>;
+  signature: number[];
+  senderId: string;
+  recipientId: string;
+  timestamp: number;
+  conversationId: string;
+  visibleTo: string[];
+}
+
+/**
+ * Deterministically build a conversation id from two user ids
+ */
+export function getConversationId(userA: string, userB: string): string {
+  return [userA, userB].sort().join(":");
+}
+
+async function buildEncryptedPayload(
+  message: string,
+  publicKey: Uint8Array
+): Promise<EncryptedPayload> {
+  const { ciphertext: encapsulatedKey, sharedSecret } = await encapsulate(
+    publicKey
+  );
+  const aesKey = await deriveKey(sharedSecret);
+  const { ciphertext, iv, tag } = await encrypt(message, aesKey);
+
+  return {
+    ciphertext,
+    iv,
+    tag,
+    encapsulatedKey,
+  };
+}
+
+function serializePayload(payload: EncryptedPayload) {
+  return {
+    ciphertext: Array.from(payload.ciphertext),
+    iv: Array.from(payload.iv),
+    tag: Array.from(payload.tag),
+    encapsulatedKey: Array.from(payload.encapsulatedKey),
+  };
 }
 
 /**
@@ -121,43 +184,45 @@ export async function sendEncryptedMessage(
     // Get recipient's public keys
     const recipientKeys = await getUserPublicKeys(recipientId);
 
-    // Encapsulate a shared secret using recipient's Kyber public key
-    const { ciphertext: encapsulatedKey, sharedSecret } = await encapsulate(
+    const conversationId = getConversationId(senderId, recipientId);
+    // Create payloads for recipient and sender so both can decrypt from any device
+    const recipientPayload = await buildEncryptedPayload(
+      message,
       recipientKeys.kyberPublicKey
     );
-
-    // Derive an AES key from the shared secret
-    const aesKey = await deriveKey(sharedSecret);
-
-    // Encrypt the message
-    const { ciphertext, iv, tag } = await encrypt(message, aesKey);
-
+    const senderPayload = await buildEncryptedPayload(
+      message,
+      senderKeys.kyberPublicKey
+    );
     // Sign the plaintext message
     const messageBytes = new TextEncoder().encode(message);
     const signature = await sign(messageBytes, senderKeys.dilithiumPrivateKey);
 
     // Create the message document
-    const messageData: EncryptedMessage = {
-      ciphertext,
-      iv,
-      tag,
+    const messageData: EncryptedMessageDocument = {
+      payloads: {
+        [recipientId]: recipientPayload,
+        [senderId]: senderPayload,
+      },
       signature,
-      encapsulatedKey,
       senderId,
       recipientId,
       timestamp: Date.now(),
+      conversationId,
+      visibleTo: [senderId, recipientId],
     };
 
     // Store the encrypted message in Firestore
-    const messageRef = doc(db, MESSAGES_COLLECTION);
-    await setDoc(messageRef, {
+    const messageRef = await addDoc(collection(db, MESSAGES_COLLECTION), {
       ...messageData,
-      // Convert Uint8Arrays to regular arrays for Firestore
-      ciphertext: Array.from(ciphertext),
-      iv: Array.from(iv),
-      tag: Array.from(tag),
+      payloads: Object.fromEntries(
+        Object.entries(messageData.payloads).map(([userId, payload]) => [
+          userId,
+          serializePayload(payload),
+        ])
+      ),
+      visibleTo: messageData.visibleTo,
       signature: Array.from(signature),
-      encapsulatedKey: Array.from(encapsulatedKey),
     });
 
     return messageRef.id;
@@ -174,16 +239,29 @@ export async function sendEncryptedMessage(
  * @returns {Promise<{message: string, senderId: string}>} The decrypted message and sender ID
  */
 export async function decryptMessage(
-  encryptedMessage: EncryptedMessage,
-  recipientKeys: UserKeys
+  encryptedMessage: StoredEncryptedMessage,
+  recipientKeys: UserKeys,
+  viewerId: string
 ): Promise<{ message: string; senderId: string }> {
   try {
-    // Get sender's public keys
+    const payload = encryptedMessage.payloads?.[viewerId];
+    if (!payload) {
+      throw new Error("No encrypted payload available for this user");
+    }
+
+    // Convert payload arrays back to Uint8Array
+    const normalizedPayload: EncryptedPayload = {
+      ciphertext: new Uint8Array(payload.ciphertext),
+      iv: new Uint8Array(payload.iv),
+      tag: new Uint8Array(payload.tag),
+      encapsulatedKey: new Uint8Array(payload.encapsulatedKey),
+    };
+
     const senderKeys = await getUserPublicKeys(encryptedMessage.senderId);
 
     // Decapsulate the shared secret
     const sharedSecret = await decapsulate(
-      encryptedMessage.encapsulatedKey,
+      normalizedPayload.encapsulatedKey,
       recipientKeys.kyberPrivateKey
     );
 
@@ -192,17 +270,17 @@ export async function decryptMessage(
 
     // Decrypt the message
     const decryptedMessage = await decrypt(
-      encryptedMessage.ciphertext,
+      normalizedPayload.ciphertext,
       aesKey,
-      encryptedMessage.iv,
-      encryptedMessage.tag
+      normalizedPayload.iv,
+      normalizedPayload.tag
     );
 
     // Verify the signature
     const messageBytes = new TextEncoder().encode(decryptedMessage);
     const isValid = await verify(
       messageBytes,
-      encryptedMessage.signature,
+      new Uint8Array(encryptedMessage.signature),
       senderKeys.dilithiumPublicKey
     );
 

@@ -61,7 +61,8 @@ export function useCrypto() {
 
   // Decrypt a received message
   const decryptReceivedMessage = async (
-    encryptedMessage: any
+    encryptedMessage: any,
+    viewerId: string
   ): Promise<{
     message: string;
     senderId: string;
@@ -71,17 +72,7 @@ export function useCrypto() {
     }
 
     try {
-      // Convert Firestore arrays back to Uint8Arrays
-      const messageData = {
-        ...encryptedMessage,
-        ciphertext: new Uint8Array(encryptedMessage.ciphertext),
-        iv: new Uint8Array(encryptedMessage.iv),
-        tag: new Uint8Array(encryptedMessage.tag),
-        signature: new Uint8Array(encryptedMessage.signature),
-        encapsulatedKey: new Uint8Array(encryptedMessage.encapsulatedKey),
-      };
-
-      const result = await decryptMessage(messageData, keys);
+      const result = await decryptMessage(encryptedMessage, keys, viewerId);
       return result;
     } catch (err) {
       console.error("Error decrypting message:", err);

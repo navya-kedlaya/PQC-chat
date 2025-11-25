@@ -1,4 +1,6 @@
-import { mlkem } from "mlkem";
+import { MlKem768 } from "./mlkem";
+
+const mlkem = new MlKem768();
 
 // Kyber key sizes (using Kyber768)
 const KYBER_PUBLIC_KEY_SIZE = 1568;
@@ -15,7 +17,7 @@ export async function generateKyberKeyPair(): Promise<{
   privateKey: Uint8Array;
 }> {
   try {
-    const keyPair = await mlkem.keyPair();
+    const keyPair = await mlkem.keypair();
     return {
       publicKey: new Uint8Array(keyPair.publicKey),
       privateKey: new Uint8Array(keyPair.privateKey),

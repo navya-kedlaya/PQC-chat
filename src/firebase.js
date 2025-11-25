@@ -7,14 +7,13 @@ import { getAuth } from "firebase/auth";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyC6xbu-keOE2GLWFFZ4hBAFmZr5TXjvSX4",
-  authDomain: "pqchat-app.firebaseapp.com",
-  projectId: "pqchat-app",
-  storageBucket: "pqchat-app.appspot.com",
-  messagingSenderId: "970955153659",
-  appId: "1:970955153659:web:df7af3a7e67357f067d05e",
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyC6xbu-keOE2GLWFFZ4hBAFmZr5TXjvSX4",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "pqchat-app.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "pqchat-app",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "pqchat-app.appspot.com",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "970955153659",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:970955153659:web:df7af3a7e67357f067d05e",
 };
 
 // Initialize Firebase
