@@ -21,6 +21,7 @@
     "cors": "^2.8.5",
     "crypto-browserify": "^3.12.0",
     "express": "^5.1.0",
+    "firebase": "^12.6.0",
     "inflection": "^1.13.3",
     "js-sha256": "^0.11.0",
     "mlkem": "^1.1.2",

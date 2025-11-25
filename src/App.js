@@ -1,10 +1,10 @@
 import React from "react";
-import KyberKeyDemo from "./components/KyberKeyDemo";
+import CloudChat from "./components/CloudChat";
 
 function App() {
   return (
     <div className="min-h-screen bg-gray-100">
-      <KyberKeyDemo />
+      <CloudChat />
     </div>
   );
 }

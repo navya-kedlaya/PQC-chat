@@ -9,6 +9,7 @@ import {
   onSnapshot,
   orderBy,
 } from "firebase/firestore";
+import { getConversationId } from "../services/cryptoService";
 
 interface Message {
   id: string;
@@ -27,11 +28,13 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
 
   // Subscribe to messages
   useEffect(() => {
-    if (!user) return;
+    if (!user || !recipientId) return;
+
+    const conversationId = getConversationId(user.uid, recipientId);
 
     const q = query(
       collection(db, "messages"),
-      where("recipientId", "==", user.uid),
+      where("conversationId", "==", conversationId),
       orderBy("timestamp", "asc")
     );
 
@@ -41,7 +44,7 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
       for (const doc of snapshot.docs) {
         try {
           const data = doc.data();
-          const decrypted = await decryptReceivedMessage(data);
+          const decrypted = await decryptReceivedMessage(data, user.uid);
           newMessages.push({
             id: doc.id,
             text: decrypted.message,
@@ -59,11 +62,11 @@ export function SecureChat({ recipientId }: { recipientId: string }) {
     });
 
     return () => unsubscribe();
-  }, [user, decryptReceivedMessage]);
+  }, [user, recipientId, decryptReceivedMessage]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || sending) return;
+    if (!newMessage.trim() || !user || sending || !recipientId) return;
 
     setSending(true);
     try {
