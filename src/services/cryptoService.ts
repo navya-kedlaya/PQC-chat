@@ -41,6 +41,16 @@ interface StoredEncryptedPayload {
   encapsulatedKey: number[];
 }
 
+interface EncryptedMessageDocument {
+  payloads: Record<string, EncryptedPayload>;
+  signature: Uint8Array;
+  senderId: string;
+  recipientId: string;
+  timestamp: number;
+  conversationId: string;
+  visibleTo: string[];
+}
+
 interface StoredEncryptedMessage {
   payloads: Record<string, StoredEncryptedPayload>;
   signature: number[];
@@ -189,7 +199,7 @@ export async function sendEncryptedMessage(
     const signature = await sign(messageBytes, senderKeys.dilithiumPrivateKey);
 
     // Create the message document
-    const messageData: EncryptedMessage = {
+    const messageData: EncryptedMessageDocument = {
       payloads: {
         [recipientId]: recipientPayload,
         [senderId]: senderPayload,
